@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Macro Dashboard · Aqualen Studio</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0d1117;
+      color: #e0e0e0;
+      font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+      font-size: 13px;
+      min-height: 100vh;
+      padding: 24px 20px;
+    }
+
+    #app { max-width: 1080px; margin: 0 auto; }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid #1e2433;
+    }
+    .title {
+      font-size: 19px;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      color: #ffffff;
+    }
+    .subtitle { font-size: 11px; color: #8888aa; margin-top: 5px; line-height: 1.6; }
+    #refresh-btn {
+      background: #161b27;
+      border: 1px solid #2a2a4a;
+      color: #8888aa;
+      padding: 6px 14px;
+      font-size: 11px;
+      font-family: inherit;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: color 0.15s;
+      white-space: nowrap;
+      margin-top: 2px;
+    }
+    #refresh-btn:hover { color: #e0e0e0; }
+
+    /* ── Controls ── */
+    .control-row { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 8px; }
+
+    .period-btn {
+      padding: 4px 12px;
+      font-size: 11px;
+      font-family: inherit;
+      border: 1px solid #2a2a4a;
+      border-radius: 4px;
+      cursor: pointer;
+      background: none;
+      color: #8888aa;
+      transition: all 0.12s;
+    }
+    .period-btn.active { background: #e0e0e0; color: #0d1117; border-color: #e0e0e0; }
+    .period-btn:hover:not(.active) { border-color: #8888aa; color: #e0e0e0; }
+
+    .asset-btn {
+      padding: 3px 12px;
+      font-size: 11px;
+      font-family: inherit;
+      border-radius: 20px;
+      cursor: pointer;
+      transition: all 0.12s;
+      border-width: 1px;
+      border-style: solid;
+    }
+
+    /* ── Tabs ── */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid #1e2433;
+      margin: 18px 0 16px;
+    }
+    .tab-btn {
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      padding: 8px 18px;
+      font-size: 12px;
+      font-family: inherit;
+      color: #8888aa;
+      cursor: pointer;
+      transition: all 0.12s;
+      letter-spacing: 0.02em;
+    }
+    .tab-btn.active { color: #e0e0e0; border-bottom-color: #e0e0e0; }
+    .tab-btn:hover:not(.active) { color: #c0c0c0; }
+
+    /* ── Chart ── */
+    #chart-wrap { position: relative; height: 360px; }
+    .chart-note {
+      font-size: 10px;
+      color: #555577;
+      text-align: center;
+      margin-top: 8px;
+      letter-spacing: 0.03em;
+    }
+
+    /* ── Table ── */
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      padding: 8px 10px;
+      text-align: right;
+      font-size: 10px;
+      color: #555577;
+      font-weight: 400;
+      border-bottom: 1px solid #1e2433;
+      white-space: nowrap;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    th:first-child { text-align: left; }
+    td { padding: 9px 10px; text-align: right; border-bottom: 1px solid #161b27; }
+    td:first-child { text-align: left; }
+    tr:hover td { background: #111622; }
+    .pos { color: #00C853; }
+    .neg { color: #FF1744; }
+
+    /* ── Events ── */
+    .evt {
+      display: flex;
+      gap: 16px;
+      padding: 12px 0;
+      border-bottom: 1px solid #161b27;
+    }
+    .evt-date { min-width: 88px; font-size: 11px; color: #555577; padding-top: 2px; }
+    .evt-title { font-size: 13px; font-weight: 500; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .evt-desc { font-size: 11px; color: #8888aa; line-height: 1.55; font-family: -apple-system, sans-serif; }
+    .badge {
+      display: inline-block;
+      font-size: 10px;
+      padding: 1px 7px;
+      border-radius: 10px;
+      font-family: 'SF Mono', monospace;
+    }
+    .sev-critical { background: #ff444420; color: #ff6666; }
+    .sev-high     { background: #ff880020; color: #ffaa44; }
+    .sev-medium   { background: #33333344; color: #888888; }
+    .cat-badge    { background: #1e2433; color: #8888aa; }
+
+    /* ── Analysis ── */
+    #analysis-section { padding: 4px 0; }
+    .analysis-intro { color: #8888aa; font-size: 12px; margin-bottom: 16px; line-height: 1.6; }
+    #key-wrap {
+      background: #0a0e16;
+      border: 1px solid #1e2433;
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-bottom: 14px;
+    }
+    #key-wrap label { font-size: 10px; color: #555577; display: block; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.06em; }
+    #api-key {
+      width: 100%;
+      background: #0d1117;
+      border: 1px solid #2a2a4a;
+      color: #e0e0e0;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-family: inherit;
+      border-radius: 6px;
+      outline: none;
+    }
+    #api-key:focus { border-color: #4a4a6a; }
+    #key-note { font-size: 10px; color: #555577; margin-top: 6px; line-height: 1.5; }
+    #analyze-btn {
+      width: 100%;
+      padding: 10px;
+      background: #161b27;
+      border: 1px solid #2a2a4a;
+      color: #c0c0c0;
+      font-size: 13px;
+      font-family: inherit;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+      letter-spacing: 0.02em;
+    }
+    #analyze-btn:hover:not(:disabled) { background: #1e2433; border-color: #4a4a6a; color: #ffffff; }
+    #analyze-btn:disabled { opacity: 0.5; cursor: default; }
+    #analysis-out {
+      margin-top: 18px;
+      line-height: 1.8;
+      font-size: 14px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      color: #d0d0d0;
+    }
+    #analysis-out strong { color: #ffffff; }
+
+    /* ── Utility ── */
+    .loading { text-align: center; padding: 60px 0; color: #555577; font-size: 12px; }
+    .error-msg { color: #FF6666; font-size: 12px; padding: 10px 0; }
+
+    @media (max-width: 600px) {
+      body { padding: 16px 14px; }
+      #chart-wrap { height: 260px; }
+      .title { font-size: 15px; }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <div>
+      <div class="title">MACRO DASHBOARD</div>
+      <div id="live" class="subtitle">加载实时价格...</div>
+    </div>
+    <button id="refresh-btn" onclick="refreshAll()">↻ 刷新</button>
+  </header>
+
+  <div class="control-row" id="period-row"></div>
+  <div class="control-row" id="asset-row"></div>
+
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('chart',this)">走势图</button>
+    <button class="tab-btn" onclick="switchTab('stats',this)">数据</button>
+    <button class="tab-btn" onclick="switchTab('events',this)">大事件</button>
+    <button class="tab-btn" onclick="switchTab('analysis',this)">AI分析</button>
+  </div>
+
+  <div id="error-zone"></div>
+
+  <!-- Chart -->
+  <div id="tab-chart">
+    <div id="chart-loading" class="loading">从 Supabase 加载历史数据...</div>
+    <div id="chart-wrap" style="display:none"><canvas id="myChart"></canvas></div>
+    <div class="chart-note" id="chart-note" style="display:none">
+      归一化涨跌（起始点 = 0%）&nbsp;｜&nbsp;
+      <span style="color:#ff6666">红线</span> = 危机事件 &nbsp;
+      <span style="color:#ffaa44">橙线</span> = 高影响事件
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div id="tab-stats" style="display:none">
+    <div id="stats-loading" class="loading">加载中...</div>
+    <div id="stats-wrap" style="display:none">
+      <table>
+        <thead>
+          <tr>
+            <th style="text-align:left">资产</th>
+            <th>最新价</th>
+            <th>日</th>
+            <th>周</th>
+            <th>月</th>
+            <th id="period-th">本期</th>
+          </tr>
+        </thead>
+        <tbody id="stats-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Events -->
+  <div id="tab-events" style="display:none">
+    <div id="events-wrap"></div>
+  </div>
+
+  <!-- Analysis -->
+  <div id="tab-analysis" style="display:none">
+    <div id="analysis-section">
+      <div class="analysis-intro">
+        AI 读取你 Supabase 里的真实数据 + 实时价格，给出宏观分析和判断。<br>
+        需要 Anthropic API Key（从 <a href="https://console.anthropic.com" target="_blank" style="color:#8888aa">console.anthropic.com</a> 获取，与 Claude.ai 账号分开）。
+      </div>
+      <div id="key-wrap">
+        <label>Claude API Key</label>
+        <input type="password" id="api-key" placeholder="sk-ant-api03-..." />
+        <div id="key-note">Key 仅存在本次浏览器会话，关闭标签页即清除，不会上传到任何地方</div>
+      </div>
+      <button id="analyze-btn" onclick="runAnalysis()">开始 AI 宏观分析</button>
+      <div id="analysis-out"></div>
+    </div>
+  </div>
+
+</div>
+<script>
+// ═══════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════
+const SUPA_URL = 'https://owlavwqzhmjkgmsnajoa.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im93bGF2d3F6aG1qa2dtc25ham9hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzMzAzMzksImV4cCI6MjA5NzkwNjMzOX0.X6QNEBM33_3i1sCYr1tduL4i2KDLIwL-EsQ7zDoGne0';
+
+const ASSETS = {
+  BTC:    '#F7931A',
+  Gold:   '#FFD700',
+  DXY:    '#E8C840',
+  SP500:  '#00C853',
+  Nasdaq: '#AA7FFF',
+  ETH:    '#627EEA',
+  Oil:    '#4D9EFF',
+  Silver: '#C0C0C0',
+};
+
+const PERIODS     = ['1M','3M','6M','1Y','3Y','Max'];
+const PERIOD_DAYS = { '1M':30,'3M':90,'6M':180,'1Y':365,'3Y':1095,'Max':3650 };
+
+// ═══════════════════════════════════
+// STATE
+// ═══════════════════════════════════
+let period      = '1Y';
+let activeA     = new Set(Object.keys(ASSETS));
+let chart       = null;
+let chartData   = [];
+let eventsData  = [];
+let statsData   = {};
+let cryptoData  = null;
+
+// ═══════════════════════════════════
+// INIT
+// ═══════════════════════════════════
+function init() {
+  // Period buttons
+  const pRow = document.getElementById('period-row');
+  PERIODS.forEach(p => {
+    const b = document.createElement('button');
+    b.className = 'period-btn' + (p === period ? ' active' : '');
+    b.textContent = p;
+    b.onclick = () => { period = p; syncPeriodBtns(); loadData(); };
+    pRow.appendChild(b);
+  });
+
+  // Asset buttons
+  const aRow = document.getElementById('asset-row');
+  Object.entries(ASSETS).forEach(([a, c]) => {
+    const b = document.createElement('button');
+    b.className = 'asset-btn';
+    b.textContent = a;
+    b.dataset.asset = a;
+    styleAssetBtn(b, c, true);
+    b.onclick = () => {
+      if (activeA.has(a)) {
+        if (activeA.size <= 1) return;
+        activeA.delete(a);
+        styleAssetBtn(b, c, false);
+      } else {
+        activeA.add(a);
+        styleAssetBtn(b, c, true);
+      }
+      if (chart) renderChart();
+    };
+    aRow.appendChild(b);
+  });
+
+  loadData();
+  loadCrypto();
+}
+
+function styleAssetBtn(btn, color, on) {
+  btn.style.color       = on ? color : '#555577';
+  btn.style.borderColor = on ? color : '#2a2a4a';
+  btn.style.background  = on ? color + '22' : 'none';
+}
+
+function syncPeriodBtns() {
+  document.querySelectorAll('.period-btn').forEach((b, i) => {
+    b.classList.toggle('active', PERIODS[i] === period);
+  });
+  const th = document.getElementById('period-th');
+  if (th) th.textContent = period;
+}
+
+// ═══════════════════════════════════
+// DATA FETCH
+// ═══════════════════════════════════
+async function supa(path) {
+  const r = await fetch(`${SUPA_URL}/rest/v1/${path}`, {
+    headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
+  });
+  if (!r.ok) throw new Error(`Supabase ${r.status}`);
+  return r.json();
+}
+
+async function loadData() {
+  const errEl = document.getElementById('error-zone');
+  errEl.innerHTML = '';
+  show('chart-loading'); hide('chart-wrap'); hide('chart-note');
+  show('stats-loading'); hide('stats-wrap');
+
+  try {
+    const d = new Date();
+    d.setDate(d.getDate() - (PERIOD_DAYS[period] || 365));
+    const from = d.toISOString().slice(0, 10);
+
+    const [raw, evts] = await Promise.all([
+      supa(`market_daily?select=date,asset,close&date=gte.${from}&order=date.asc&limit=30000`),
+      supa(`market_events?select=*&date=gte.${from}&order=date.asc`),
+    ]);
+
+    eventsData = evts;
+    processRaw(raw);
+    renderChart();
+    renderStats();
+    renderEvents();
+
+  } catch (e) {
+    errEl.innerHTML = `<div class="error-msg">数据加载失败: ${e.message}</div>`;
+    hide('chart-loading');
+  }
+}
+
+function processRaw(raw) {
+  const byA = {};
+  raw.forEach(r => {
+    if (!byA[r.asset]) byA[r.asset] = {};
+    byA[r.asset][r.date] = parseFloat(r.close);
+  });
+
+  const dates = [...new Set(raw.map(r => r.date))].sort();
+
+  const base = {};
+  Object.keys(byA).forEach(a => {
+    const first = Object.keys(byA[a]).sort()[0];
+    base[a] = byA[a][first];
+  });
+
+  let useDates = dates;
+  if (dates.length > 600) {
+    const n = Math.ceil(dates.length / 600);
+    useDates = dates.filter((_, i) => i % n === 0 || i === dates.length - 1);
+  }
+
+  chartData = useDates.map(date => {
+    const row = { date };
+    Object.keys(ASSETS).forEach(a => {
+      if (byA[a]?.[date] && base[a]) {
+        row[a] = parseFloat(((byA[a][date] / base[a] - 1) * 100).toFixed(2));
+      }
+    });
+    return row;
+  });
+
+  statsData = {};
+  Object.keys(ASSETS).forEach(a => {
+    const days = Object.keys(byA[a] || {}).sort();
+    if (days.length < 2) return;
+    const last = byA[a][days[days.length - 1]];
+    const g = n => days.length > n ? byA[a][days[days.length - 1 - n]] : null;
+    statsData[a] = {
+      latest: last,
+      day:   g(1)  ? ((last/g(1)  - 1)*100).toFixed(2) : null,
+      week:  g(5)  ? ((last/g(5)  - 1)*100).toFixed(2) : null,
+      month: g(21) ? ((last/g(21) - 1)*100).toFixed(2) : null,
+      total: base[a] ? ((last/base[a] - 1)*100).toFixed(2) : null,
+    };
+  });
+}
+
+// ═══════════════════════════════════
+// CHART
+// ═══════════════════════════════════
+function renderChart() {
+  hide('chart-loading');
+  show('chart-wrap');
+  show('chart-note');
+
+  const labels = chartData.map(d => d.date);
+  const datasets = Object.entries(ASSETS)
+    .filter(([a]) => activeA.has(a))
+    .map(([a, c]) => ({
+      label: a,
+      data: chartData.map(d => d[a] ?? null),
+      borderColor: c,
+      backgroundColor: 'transparent',
+      borderWidth: 1.5,
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      tension: 0,
+      spanGaps: true,
+    }));
+
+  const annotations = {};
+  eventsData.forEach((e, i) => {
+    annotations[`e${i}`] = {
+      type: 'line',
+      xMin: e.date, xMax: e.date,
+      borderColor: e.severity === 'critical' ? 'rgba(255,80,80,0.55)' : e.severity === 'high' ? 'rgba(255,140,0,0.45)' : 'rgba(120,120,120,0.3)',
+      borderWidth: 1,
+      borderDash: [4, 3],
+    };
+  });
+
+  if (chart) { chart.destroy(); chart = null; }
+
+  chart = new Chart(document.getElementById('myChart').getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#0a0e16',
+          borderColor: '#2a2a4a',
+          borderWidth: 1,
+          titleColor: '#555577',
+          bodyColor: '#e0e0e0',
+          padding: 10,
+          callbacks: {
+            label: c => {
+              const v = c.raw;
+              if (v == null) return null;
+              return ` ${c.dataset.label}  ${v >= 0 ? '+' : ''}${v}%`;
+            }
+          }
+        },
+        annotation: { annotations },
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(30,36,51,0.8)', drawTicks: false },
+          ticks: { color: '#555577', font: { size: 10 }, maxTicksLimit: 10, callback: (_, i) => labels[i]?.slice(0,7) },
+          border: { display: false },
+        },
+        y: {
+          grid: { color: 'rgba(30,36,51,0.8)', drawTicks: false },
+          ticks: { color: '#555577', font: { size: 10 }, callback: v => `${v>0?'+':''}${v}%` },
+          border: { display: false },
+        },
+      },
+    },
+  });
+}
+
+// ═══════════════════════════════════
+// STATS TABLE
+// ═══════════════════════════════════
+function renderStats() {
+  hide('stats-loading');
+  show('stats-wrap');
+  const th = document.getElementById('period-th');
+  if (th) th.textContent = period;
+
+  const tbody = document.getElementById('stats-body');
+  tbody.innerHTML = '';
+
+  Object.entries(statsData)
+    .sort((a,b) => parseFloat(b[1].total||0) - parseFloat(a[1].total||0))
+    .forEach(([a, s]) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><span style="color:${ASSETS[a]};font-weight:500;letter-spacing:0.02em">${a}</span></td>
+        <td style="font-size:12px">${fmtP(s.latest)}</td>
+        <td>${chgCell(s.day)}</td>
+        <td>${chgCell(s.week)}</td>
+        <td>${chgCell(s.month)}</td>
+        <td>${chgCell(s.total)}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+}
+
+function fmtP(v) {
+  if (!v && v !== 0) return '<span style="color:#555577">—</span>';
+  return v > 1000
+    ? v.toLocaleString('en', { maximumFractionDigits: 0 })
+    : parseFloat(v).toFixed(2);
+}
+
+function chgCell(v) {
+  if (v == null) return '<span style="color:#555577">—</span>';
+  const n = parseFloat(v);
+  return `<span class="${n>=0?'pos':'neg'}">${n>=0?'+':''}${n}%</span>`;
+}
+
+// ═══════════════════════════════════
+// EVENTS
+// ═══════════════════════════════════
+function renderEvents() {
+  const el = document.getElementById('events-wrap');
+  if (!eventsData.length) {
+    el.innerHTML = '<div style="color:#555577;padding:40px 0;text-align:center;font-size:12px;">该时间段内无预设事件</div>';
+    return;
+  }
+  el.innerHTML = eventsData.map(e => `
+    <div class="evt">
+      <div class="evt-date">${e.date}</div>
+      <div style="flex:1">
+        <div class="evt-title">
+          ${e.title}
+          <span class="badge sev-${e.severity}">${e.severity}</span>
+          <span class="badge cat-badge">${e.category}</span>
+        </div>
+        <div class="evt-desc">${e.description || ''}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ═══════════════════════════════════
+// LIVE PRICES
+// ═══════════════════════════════════
+async function loadCrypto() {
+  try {
+    cryptoData = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd&include_24hr_change=true').then(r=>r.json());
+    const b=cryptoData.bitcoin, e=cryptoData.ethereum, s=cryptoData.solana;
+    const fmt=(v,c)=>`<b style="color:${ASSETS[c]||'#e0e0e0'}">$${v.usd.toLocaleString()}</b> <span style="color:${v.usd_24h_change>=0?'#00C853':'#FF1744'}">${v.usd_24h_change>=0?'+':''}${v.usd_24h_change.toFixed(2)}%</span>`;
+    document.getElementById('live').innerHTML =
+      `BTC ${fmt(b,'BTC')} &nbsp;·&nbsp; ETH ${fmt(e,'ETH')} &nbsp;·&nbsp; SOL ${fmt(s,'Silver')} &nbsp;·&nbsp; <span style="color:#555577;font-size:10px">${new Date().toLocaleTimeString('zh-CN')}</span>`;
+  } catch {
+    document.getElementById('live').textContent = '实时价格暂不可用';
+  }
+}
+
+// ═══════════════════════════════════
+// AI ANALYSIS
+// ═══════════════════════════════════
+async function runAnalysis() {
+  const key = document.getElementById('api-key').value.trim();
+  if (!key) { alert('请先填入 Claude API Key'); return; }
+
+  const btn = document.getElementById('analyze-btn');
+  const out = document.getElementById('analysis-out');
+  btn.textContent = '分析中...';
+  btn.disabled = true;
+  out.innerHTML = '<div style="color:#555577;font-size:12px;margin-top:16px">正在读取数据并分析，约需 10-20 秒...</div>';
+
+  const statsText = Object.entries(statsData).map(([a,s]) =>
+    `${a}: 最新=${s.latest?.toFixed(2)}, 日=${s.day}%, 周=${s.week}%, 月=${s.month}%, ${period}=${s.total}%`
+  ).join('\n');
+
+  const recentEvts = eventsData.slice(-6).map(e=>`${e.date} ${e.title}`).join('\n');
+  const btcLive = cryptoData
+    ? `$${cryptoData.bitcoin?.usd?.toLocaleString()} (24h: ${cryptoData.bitcoin?.usd_24h_change?.toFixed(2)}%)`
+    : '未知';
+
+  const prompt = `你是专业宏观分析师，也是这位用户的私人投资顾问。用户：独立游戏开发者，长期DCA定投BTC，持有ETH+SOL质押，部分欧元现金（塞浦路斯公司）。
+
+市场数据（${period}周期，来自真实历史数据库）:
+${statsText}
+
+期间重大事件:
+${recentEvts}
+
+BTC实时: ${btcLive}
+
+请按以下结构分析（中文，直接给判断，不要模糊表达）：
+
+**① 本阶段宏观特征**
+（一句话定性当前处于什么市场环境）
+
+**② DXY传导链**
+（美元走势 → 如何影响黄金 → 如何影响BTC → 如何影响美股，具体路径）
+
+**③ 各资产相对强弱**
+（谁在领涨/领跌，说明背后逻辑）
+
+**④ BTC判断**
+（方向 + 理由，对长期定投者意味着什么）
+
+**⑤ 底线建议**
+（继续定投/暂停/加速？欧元现金要动吗？直接说）`;
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1000,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error.message);
+    const text = data.content?.find(b=>b.type==='text')?.text || '无响应';
+    out.innerHTML = text
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n/g, '<br>');
+  } catch(e) {
+    out.innerHTML = `<span style="color:#FF6666">分析失败: ${e.message}</span>`;
+  }
+
+  btn.textContent = '开始 AI 宏观分析';
+  btn.disabled = false;
+}
+
+// ═══════════════════════════════════
+// TABS & HELPERS
+// ═══════════════════════════════════
+function switchTab(name, btn) {
+  ['chart','stats','events','analysis'].forEach(t => {
+    document.getElementById(`tab-${t}`).style.display = t===name ? '' : 'none';
+  });
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+}
+
+function show(id) { const el=document.getElementById(id); if(el) el.style.display=''; }
+function hide(id) { const el=document.getElementById(id); if(el) el.style.display='none'; }
+
+function refreshAll() { loadData(); loadCrypto(); }
+
+// ─── Start ───
+init();
+</script>
+</body>
+</html>
