@@ -1,0 +1,53 @@
+name: Macro Data Daily Update
+
+on:
+  schedule:
+    # 每天 UTC 01:00 运行 = 北京时间 09:00 = 欧洲夏令时 03:00
+    # 美股收盘后几小时，确保当天数据已完整
+    - cron: '0 1 * * *'
+
+  # 允许在 GitHub 手动点击触发（方便测试）
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '运行模式'
+        required: true
+        default: 'daily'
+        type: choice
+        options:
+          - daily
+          - backfill
+
+jobs:
+  update-macro-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install yfinance supabase pandas
+
+      - name: Run daily update
+        if: github.event.inputs.mode != 'backfill'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python macro_fetcher.py daily
+
+      - name: Run backfill (manual only)
+        if: github.event.inputs.mode == 'backfill'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python macro_fetcher.py backfill 10y
