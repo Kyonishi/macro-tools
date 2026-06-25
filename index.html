@@ -228,6 +228,7 @@
   <div class="tabs">
     <button class="tab-btn active" onclick="switchTab('chart',this)">走势图</button>
     <button class="tab-btn" onclick="switchTab('stats',this)">数据</button>
+    <button class="tab-btn" onclick="switchTab('macro',this)">宏观指标</button>
     <button class="tab-btn" onclick="switchTab('events',this)">大事件</button>
     <button class="tab-btn" onclick="switchTab('analysis',this)">AI分析</button>
   </div>
@@ -262,6 +263,34 @@
         </thead>
         <tbody id="stats-body"></tbody>
       </table>
+    </div>
+  </div>
+
+  <!-- Macro indicators -->
+  <div id="tab-macro" style="display:none">
+    <div id="macro-loading" class="loading">加载宏观指标...</div>
+    <div id="macro-wrap" style="display:none">
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:20px" id="macro-cards"></div>
+
+      <div style="font-size:11px;font-weight:500;color:#555577;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:12px">收益率曲线</div>
+      <div id="yield-curve-wrap" style="margin-bottom:20px">
+        <div id="yield-status" style="font-size:13px;margin-bottom:8px"></div>
+        <div style="background:#161b27;border-radius:8px;padding:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <span style="font-size:11px;color:#555577">2年期</span>
+            <span id="y2-val" style="font-family:monospace;font-size:13px">—</span>
+            <span style="font-size:11px;color:#555577">10年期</span>
+            <span id="y10-val" style="font-family:monospace;font-size:13px">—</span>
+            <span style="font-size:11px;color:#555577">利差</span>
+            <span id="yspread-val" style="font-family:monospace;font-size:13px;font-weight:500">—</span>
+          </div>
+          <div style="font-size:11px;color:#555577;line-height:1.5" id="yield-explain"></div>
+        </div>
+      </div>
+
+      <div style="font-size:11px;font-weight:500;color:#555577;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:12px">历史数据（最近12期）</div>
+      <div id="macro-history"></div>
     </div>
   </div>
 
@@ -304,6 +333,10 @@ const ASSETS = {
   ETH:    '#627EEA',
   Oil:    '#4D9EFF',
   Silver: '#C0C0C0',
+  VIX:    '#FF6B6B',
+  Copper: '#CD7F32',
+  EURUSD: '#4ECDC4',
+  JPYUSD: '#FF8C69',
 };
 
 const PERIODS     = ['1M','3M','6M','1Y','3Y','Max'];
@@ -700,17 +733,132 @@ BTC实时: ${btcLive}
 // TABS & HELPERS
 // ═══════════════════════════════════
 function switchTab(name, btn) {
-  ['chart','stats','events','analysis'].forEach(t => {
+  ['chart','stats','macro','events','analysis'].forEach(t => {
     document.getElementById(`tab-${t}`).style.display = t===name ? '' : 'none';
   });
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
+  if (name === 'macro' && !macroLoaded) loadMacro();
 }
 
 function show(id) { const el=document.getElementById(id); if(el) el.style.display=''; }
 function hide(id) { const el=document.getElementById(id); if(el) el.style.display='none'; }
 
-function refreshAll() { loadData(); loadCrypto(); }
+function refreshAll() { loadData(); loadCrypto(); macroLoaded = false; }
+
+// ═══════════════════════════════════
+// MACRO INDICATORS
+// ═══════════════════════════════════
+let macroLoaded = false;
+
+async function loadMacro() {
+  show('macro-loading'); hide('macro-wrap');
+  try {
+    const [latest, history] = await Promise.all([
+      supa('macro_indicators?select=indicator,value,unit,frequency&order=date.desc&limit=200'),
+      supa('macro_indicators?select=indicator,date,value&indicator=in.(fed_rate,cpi,m2,yield_spread)&order=date.desc&limit=60'),
+    ]);
+
+    // Get latest value per indicator
+    const byInd = {};
+    latest.forEach(r => { if (!byInd[r.indicator]) byInd[r.indicator] = r; });
+
+    renderMacroCards(byInd);
+    renderYieldCurve(byInd);
+    renderMacroHistory(history);
+
+    hide('macro-loading'); show('macro-wrap');
+    macroLoaded = true;
+  } catch(e) {
+    document.getElementById('macro-loading').innerHTML =
+      `<div class="error-msg">宏观指标加载失败: ${e.message}<br><span style="color:#555577;font-size:11px">请先配置 FRED_API_KEY 并运行回填脚本</span></div>`;
+  }
+}
+
+function renderMacroCards(byInd) {
+  const CARD_DEFS = [
+    { key: 'fed_rate',     label: 'Fed 利率',    unit: '%',   icon: '🏦', desc: '美联储政策利率' },
+    { key: 'cpi',          label: 'CPI 指数',    unit: '',    icon: '📈', desc: '消费者价格指数（月度）' },
+    { key: 'core_cpi',     label: '核心 CPI',    unit: '',    icon: '🎯', desc: '剔除食品能源' },
+    { key: 'm2',           label: 'M2 货币',     unit: 'B$',  icon: '💵', desc: '美国M2货币供应量' },
+    { key: 'yield_2y',     label: '2Y 收益率',   unit: '%',   icon: '📉', desc: '2年期国债收益率' },
+    { key: 'yield_10y',    label: '10Y 收益率',  unit: '%',   icon: '📊', desc: '10年期国债收益率' },
+  ];
+
+  const el = document.getElementById('macro-cards');
+  if (Object.keys(byInd).length === 0) {
+    el.innerHTML = `<div style="color:#555577;font-size:12px;grid-column:1/-1;padding:20px 0">
+      暂无宏观数据。请先获取 FRED API Key 并运行回填脚本。<br>
+      <a href="https://fred.stlouisfed.org/docs/api/api_key.html" target="_blank" style="color:#8888aa">申请地址 →</a>
+    </div>`;
+    return;
+  }
+
+  el.innerHTML = CARD_DEFS.map(d => {
+    const r = byInd[d.key];
+    const val = r ? (d.key === 'm2' ? (r.value/1000).toFixed(1) + 'T' : r.value?.toFixed(2) + d.unit) : '—';
+    return `<div style="background:#0a0e16;border:1px solid #1e2433;border-radius:8px;padding:12px 14px">
+      <div style="font-size:10px;color:#555577;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">${d.icon} ${d.label}</div>
+      <div style="font-size:20px;font-weight:500;font-family:monospace;color:#e0e0e0;margin-bottom:3px">${val}</div>
+      <div style="font-size:10px;color:#555577">${d.desc}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderYieldCurve(byInd) {
+  const y2  = byInd['yield_2y']?.value;
+  const y10 = byInd['yield_10y']?.value;
+  const sp  = byInd['yield_spread']?.value;
+
+  document.getElementById('y2-val').textContent  = y2  ? y2.toFixed(2)  + '%' : '—';
+  document.getElementById('y10-val').textContent = y10 ? y10.toFixed(2) + '%' : '—';
+
+  if (sp != null) {
+    const inverted = sp < 0;
+    const el = document.getElementById('yspread-val');
+    el.textContent = (sp >= 0 ? '+' : '') + sp.toFixed(2) + '%';
+    el.style.color = inverted ? '#FF6666' : '#00C853';
+
+    const statusEl = document.getElementById('yield-status');
+    const explainEl = document.getElementById('yield-explain');
+    if (inverted) {
+      statusEl.innerHTML = '<span style="color:#FF6666;font-weight:500">⚠️ 收益率曲线倒挂</span>';
+      explainEl.textContent = '历史上曲线倒挂后12-18个月内衰退概率超过70%。这是目前最受关注的衰退预警信号之一。';
+    } else {
+      statusEl.innerHTML = '<span style="color:#00C853;font-weight:500">✅ 收益率曲线正常</span>';
+      explainEl.textContent = '10年期利率高于2年期，曲线形态正常，无即时衰退信号。';
+    }
+  }
+}
+
+function renderMacroHistory(history) {
+  const el = document.getElementById('macro-history');
+  const grouped = {};
+  history.forEach(r => {
+    if (!grouped[r.indicator]) grouped[r.indicator] = [];
+    grouped[r.indicator].push(r);
+  });
+
+  const LABELS = {
+    fed_rate: 'Fed 利率 (%)', cpi: 'CPI 指数',
+    m2: 'M2 (十亿美元)', yield_spread: '收益率利差 (%)'
+  };
+
+  el.innerHTML = Object.entries(grouped).map(([ind, rows]) => {
+    const sorted = rows.sort((a,b) => b.date.localeCompare(a.date)).slice(0, 12);
+    return `<div style="margin-bottom:16px">
+      <div style="font-size:11px;color:#8888aa;margin-bottom:6px">${LABELS[ind] || ind}</div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap">
+        ${sorted.map(r => `
+          <div style="background:#0a0e16;border:1px solid #1e2433;border-radius:4px;padding:4px 8px;font-size:11px">
+            <div style="color:#555577;font-size:10px">${r.date.slice(0,7)}</div>
+            <div style="font-family:monospace;color:#e0e0e0">${parseFloat(r.value).toFixed(2)}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>`;
+  }).join('') || '<div style="color:#555577;font-size:12px">暂无历史数据</div>';
+}
 
 // ─── Start ───
 init();
