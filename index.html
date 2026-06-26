@@ -410,12 +410,33 @@ function syncPeriodBtns() {
 // ═══════════════════════════════════
 // DATA FETCH
 // ═══════════════════════════════════
+
+// 单次请求（用于小数据量）
 async function supa(path) {
   const r = await fetch(`${SUPA_URL}/rest/v1/${path}`, {
     headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}` }
   });
   if (!r.ok) throw new Error(`Supabase ${r.status}`);
   return r.json();
+}
+
+// 分页请求（自动处理大数据量，绕过单次1000行限制）
+async function supaAll(path) {
+  const size = 5000;
+  let offset = 0, all = [];
+  while (true) {
+    const sep = path.includes('?') ? '&' : '?';
+    const r = await fetch(`${SUPA_URL}/rest/v1/${path}${sep}limit=${size}&offset=${offset}`, {
+      headers: { apikey: SUPA_KEY, Authorization: `Bearer ${SUPA_KEY}`, 'Prefer': 'count=none' }
+    });
+    if (!r.ok) throw new Error(`Supabase ${r.status}`);
+    const chunk = await r.json();
+    all = all.concat(chunk);
+    if (chunk.length < size) break;
+    offset += size;
+    if (offset > 200000) break;
+  }
+  return all;
 }
 
 async function loadData() {
@@ -430,7 +451,7 @@ async function loadData() {
     const from = d.toISOString().slice(0, 10);
 
     const [raw, evts] = await Promise.all([
-      supa(`market_daily?select=date,asset,close&date=gte.${from}&order=date.asc&limit=30000`),
+      supaAll(`market_daily?select=date,asset,close&date=gte.${from}&order=date.asc`),
       supa(`market_events?select=*&date=gte.${from}&order=date.asc`),
     ]);
 
