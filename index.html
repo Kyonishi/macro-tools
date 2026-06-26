@@ -755,8 +755,8 @@ async function loadMacro() {
   show('macro-loading'); hide('macro-wrap');
   try {
     const [latest, history] = await Promise.all([
-      supa('macro_indicators?select=indicator,value,unit,frequency&order=date.desc&limit=200'),
-      supa('macro_indicators?select=indicator,date,value&indicator=in.(fed_rate,cpi,m2,yield_spread)&order=date.desc&limit=60'),
+      supa('macro_indicators?select=indicator,value,unit,frequency&order=date.desc&limit=500'),
+      supa('macro_indicators?select=indicator,date,value&indicator=in.(fed_rate,core_pce,real_yield_10y,yield_spread,btc_dominance,fear_greed,stablecoin_mcap)&order=date.desc&limit=200'),
     ]);
 
     // Get latest value per indicator
@@ -777,12 +777,17 @@ async function loadMacro() {
 
 function renderMacroCards(byInd) {
   const CARD_DEFS = [
-    { key: 'fed_rate',     label: 'Fed 利率',    unit: '%',   icon: '🏦', desc: '美联储政策利率' },
-    { key: 'cpi',          label: 'CPI 指数',    unit: '',    icon: '📈', desc: '消费者价格指数（月度）' },
-    { key: 'core_cpi',     label: '核心 CPI',    unit: '',    icon: '🎯', desc: '剔除食品能源' },
-    { key: 'm2',           label: 'M2 货币',     unit: 'B$',  icon: '💵', desc: '美国M2货币供应量' },
-    { key: 'yield_2y',     label: '2Y 收益率',   unit: '%',   icon: '📉', desc: '2年期国债收益率' },
-    { key: 'yield_10y',    label: '10Y 收益率',  unit: '%',   icon: '📊', desc: '10年期国债收益率' },
+    { key: 'fed_rate',       label: 'Fed 利率',      unit: '%',  icon: '🏦', desc: '美联储政策利率' },
+    { key: 'real_yield_10y', label: '实际利率 10Y',  unit: '%',  icon: '📉', desc: '名义利率 − 通胀，黄金/BTC核心驱动' },
+    { key: 'yield_spread',   label: '收益率利差',    unit: '%',  icon: '📊', desc: '10Y−2Y，负值=倒挂=衰退预警' },
+    { key: 'cpi',            label: 'CPI 指数',      unit: '',   icon: '📈', desc: '消费者价格指数' },
+    { key: 'core_pce',       label: '核心 PCE',      unit: '',   icon: '🎯', desc: 'Fed最关注的通胀指标' },
+    { key: 'm2',             label: 'M2 美国',       unit: 'B$', icon: '💵', desc: '美国货币供应量' },
+    { key: 'm2_euro',        label: 'M2 欧元区',     unit: 'B€', icon: '🇪🇺', desc: '欧元区货币供应量' },
+    { key: 'm2_china',       label: 'M2 中国',       unit: 'B¥', icon: '🇨🇳', desc: '中国货币供应量' },
+    { key: 'btc_dominance',  label: 'BTC 主导率',   unit: '%',  icon: '₿',  desc: '↑=资金集中BTC ↓=山寨季' },
+    { key: 'stablecoin_mcap',label: '稳定币市值',    unit: 'B$', icon: '💲', desc: '↑=场外资金待入场' },
+    { key: 'fear_greed',     label: '恐惧贪婪',      unit: '',   icon: '😱', desc: '<25极度恐惧 >75极度贪婪' },
   ];
 
   const el = document.getElementById('macro-cards');
@@ -796,10 +801,29 @@ function renderMacroCards(byInd) {
 
   el.innerHTML = CARD_DEFS.map(d => {
     const r = byInd[d.key];
-    const val = r ? (d.key === 'm2' ? (r.value/1000).toFixed(1) + 'T' : r.value?.toFixed(2) + d.unit) : '—';
+    let val = '—';
+    if (r) {
+      if (d.key === 'm2' || d.key === 'm2_euro' || d.key === 'm2_japan' || d.key === 'm2_china') {
+        val = (r.value / 1000).toFixed(1) + 'T';
+      } else if (d.key === 'stablecoin_mcap') {
+        val = '$' + r.value?.toFixed(0) + 'B';
+      } else if (d.key === 'fear_greed') {
+        const v = r.value;
+        const label = v < 25 ? '极度恐惧' : v < 45 ? '恐惧' : v < 55 ? '中性' : v < 75 ? '贪婪' : '极度贪婪';
+        val = `${v} <span style="font-size:11px;color:${v<45?'#FF6666':v>55?'#00C853':'#888'}">${label}</span>`;
+      } else if (d.key === 'yield_spread') {
+        const v = r.value;
+        val = `<span style="color:${v<0?'#FF6666':'#00C853'}">${v>=0?'+':''}${v?.toFixed(2)}${d.unit}</span>`;
+      } else if (d.key === 'real_yield_10y') {
+        const v = r.value;
+        val = `<span style="color:${v>2?'#FF6666':v<0?'#00C853':'#e0e0e0'}">${v?.toFixed(2)}${d.unit}</span>`;
+      } else {
+        val = r.value?.toFixed(2) + d.unit;
+      }
+    }
     return `<div style="background:#0a0e16;border:1px solid #1e2433;border-radius:8px;padding:12px 14px">
       <div style="font-size:10px;color:#555577;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">${d.icon} ${d.label}</div>
-      <div style="font-size:20px;font-weight:500;font-family:monospace;color:#e0e0e0;margin-bottom:3px">${val}</div>
+      <div style="font-size:18px;font-weight:500;font-family:monospace;color:#e0e0e0;margin-bottom:3px">${val}</div>
       <div style="font-size:10px;color:#555577">${d.desc}</div>
     </div>`;
   }).join('');
@@ -841,7 +865,10 @@ function renderMacroHistory(history) {
 
   const LABELS = {
     fed_rate: 'Fed 利率 (%)', cpi: 'CPI 指数',
-    m2: 'M2 (十亿美元)', yield_spread: '收益率利差 (%)'
+    core_pce: '核心 PCE', m2: 'M2 美国 (十亿)',
+    yield_spread: '收益率利差 (%)', real_yield_10y: '实际利率 10Y (%)',
+    btc_dominance: 'BTC 主导率 (%)', fear_greed: '恐惧贪婪指数',
+    stablecoin_mcap: '稳定币市值 (十亿$)'
   };
 
   el.innerHTML = Object.entries(grouped).map(([ind, rows]) => {
